@@ -9,7 +9,7 @@ namespace mc_robots
 
 struct MC_ROBOTS_DLLAPI G1RobotModule : public mc_rbdyn::RobotModule
 {
-  G1RobotModule(const std::string & variant = "23dof");
+  G1RobotModule(const std::string & variant = "29dof");
 };
 
 } // namespace mc_robots
