@@ -175,6 +175,19 @@ G1RobotModule::G1RobotModule(const std::string & variant)
     }
   }
   _commonSelfCollisions = _minimalSelfCollisions;
+
+  auto & bounds = _bounds;
+  auto update_joint_limit = [&bounds](const std::string & name, double limit_low, double limit_up)
+  {
+    assert(limit_up > 0);
+    assert(limit_low < 0);
+    assert(bounds[0].at(name).size() == 1);
+    bounds[0].at(name)[0] = limit_low;
+    bounds[1].at(name)[0] = limit_up;
+  };
+
+  update_joint_limit("right_ankle_roll_joint", -2.4, 2.4);
+  update_joint_limit("left_ankle_roll_joint", -2.4, 2.4);
 }
 
 void G1RobotModule::addHandLegCollisions(std::vector<mc_rbdyn::Collision> & collisions,
