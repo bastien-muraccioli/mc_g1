@@ -188,6 +188,65 @@ G1RobotModule::G1RobotModule(const std::string & variant)
 
   update_joint_limit("right_ankle_roll_joint", -2.4, 2.4);
   update_joint_limit("left_ankle_roll_joint", -2.4, 2.4);
+
+  // Rotor inertia and gear ratio for all joints.
+  // Each G1 actuator is a motor + two-stage planetary gearbox. Motor specs (from Unitree, as used in mjlab:
+  // mjlab/asset_zoo/robots/unitree_g1/g1_constants.py): inertia of the rotor (J0), of the first stage (J1) and of the
+  // second stage (J2) in kg.m^2, and the ratio of each stage (g1, g2). The inertia reflected at the joint (armature)
+  // is J0 (g1 g2)^2 + J1 g2^2 + J2, and the gear ratio is N = g1 g2. The rotor inertia given to RBDyn is the equivalent
+  // rotor-side inertia armature / N^2 (it includes the gear stages, so it is slightly larger than J0).
+  struct G1Actuator
+  {
+    double J0, J1, J2, g1, g2;
+    double gearRatio() const
+    {
+      return g1 * g2;
+    }
+    double armature() const
+    {
+      return J0 * std::pow(g1 * g2, 2) + J1 * g2 * g2 + J2;
+    }
+  };
+  //                                  J0         J1         J2         g1               g2
+  static const G1Actuator m5020 = {0.139e-4, 0.017e-4, 0.169e-4, 1. + 46. / 18., 1. + 56. / 16.}; // N=16,    0.00361
+  static const G1Actuator m7520_14 = {0.489e-4, 0.098e-4, 0.533e-4, 4.5, 1. + 48. / 22.}; // N=14.318, 0.01018
+  static const G1Actuator m7520_22 = {0.489e-4, 0.109e-4, 0.738e-4, 4.5, 5.}; // N=22.5,  0.02510
+  static const G1Actuator m4010 = {0.068e-4, 0., 0., 5., 5.}; // N=25,    0.00425
+
+  // Joint -> {actuator, number of actuators driving the joint}
+  // The ankle pitch/roll and waist pitch/roll joints are driven by two 5020 through a 4-bar linkage: the reflected
+  // inertia depends on the configuration and the linkage geometry is unknown, so (like mjlab) a 1:1 linkage is assumed
+  // and the joint armature is approximated by the sum of the armatures of the two actuators.
+  static const std::vector<std::tuple<std::string, const G1Actuator *, int>> g1Actuators = {
+      {"left_hip_pitch_joint", &m7520_14, 1},    {"right_hip_pitch_joint", &m7520_14, 1},
+      {"left_hip_roll_joint", &m7520_22, 1},     {"right_hip_roll_joint", &m7520_22, 1},
+      {"left_hip_yaw_joint", &m7520_14, 1},      {"right_hip_yaw_joint", &m7520_14, 1},
+      {"left_knee_joint", &m7520_22, 1},         {"right_knee_joint", &m7520_22, 1},
+      {"left_ankle_pitch_joint", &m5020, 2},     {"right_ankle_pitch_joint", &m5020, 2},
+      {"left_ankle_roll_joint", &m5020, 2},      {"right_ankle_roll_joint", &m5020, 2},
+      {"waist_yaw_joint", &m7520_14, 1},         {"waist_roll_joint", &m5020, 2},
+      {"waist_pitch_joint", &m5020, 2},          {"left_shoulder_pitch_joint", &m5020, 1},
+      {"left_shoulder_roll_joint", &m5020, 1},   {"left_shoulder_yaw_joint", &m5020, 1},
+      {"left_elbow_joint", &m5020, 1},           {"left_wrist_roll_joint", &m5020, 1},
+      {"left_wrist_pitch_joint", &m4010, 1},     {"left_wrist_yaw_joint", &m4010, 1},
+      {"right_shoulder_pitch_joint", &m5020, 1}, {"right_shoulder_roll_joint", &m5020, 1},
+      {"right_shoulder_yaw_joint", &m5020, 1},   {"right_elbow_joint", &m5020, 1},
+      {"right_wrist_roll_joint", &m5020, 1},     {"right_wrist_pitch_joint", &m4010, 1},
+      {"right_wrist_yaw_joint", &m4010, 1}};
+
+  for(const auto & [jName, actuator, nActuators] : g1Actuators)
+  {
+    // Skip the joints that are not actuated in this variant (23dof, locked waist)
+    auto it = mb.jointIndexByName().find(jName);
+    if(it == mb.jointIndexByName().end() || mb.joint(it->second).dof() != 1)
+    {
+      continue;
+    }
+    double gr = actuator->gearRatio();
+    double armature = nActuators * actuator->armature();
+    mb.setJointRotorInertia(it->second, armature / (gr * gr));
+    mb.setJointGearRatio(it->second, gr);
+  }
 }
 
 void G1RobotModule::addHandLegCollisions(std::vector<mc_rbdyn::Collision> & collisions,
